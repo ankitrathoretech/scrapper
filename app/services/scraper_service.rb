@@ -1,66 +1,32 @@
+require_relative 'url_builder'
+require_relative 'selenium_setup'
+require_relative 'page_scraper'
+require_relative 'company_data_processor'
+
 class ScraperService
-  BASE_URL = 'https://www.ycombinator.com/companies'
-  
+  include URLBuilder
+  include SeleniumSetup
+  include PageScraper
+  include CompanyDataProcessor
+
   def initialize(n, filters)
     @n = n
     @filters = filters
-    @companies = []
+    setup_selenium
   end
 
   def scrape
-    scrape_first_page
-    puts "Companies after first page scrape: #{@companies.inspect}" # Debugging statement
-    scrape_additional_pages if @companies.size < @n
-    puts "Companies after additional pages scrape: #{@companies.inspect}" # Debugging statement
-    save_to_csv
-  end
+    url_with_filters = build_url_with_filters(@n, @filters)
+    puts "Scraping URL: #{url_with_filters}"
+    @driver.get(url_with_filters)
+    sleep(5)
 
-  private
-
-  def scrape_first_page
-    byebug
-    page = HTTParty.get(BASE_URL)
-    doc = Nokogiri::HTML(page.body)
-    doc.css('.company').first(@n).each do |company|
-      company_data = {
-        name: company.css('.company-name').text.strip,
-        location: company.css('.company-location').text.strip,
-        short_description: company.css('.company-description').text.strip,
-        yc_batch: company.css('.yc-batch').text.strip
-      }
-      @companies << company_data
-    end
-  end
-
-  def scrape_additional_pages
-    @companies.each do |company|
-      company_url = company[:url]
-      page = HTTParty.get(company_url)
-      doc = Nokogiri::HTML(page.body)
-
-      company[:website] = doc.css('.company-website').text.strip
-      company[:founders] = doc.css('.founder-name').map(&:text).map(&:strip)
-      company[:founders_linkedin] = doc.css('.founder-linkedin').map { |link| link['href'] }
-    end
-  end
-
-  def save_to_csv
-    file_path = Rails.root.join('tmp', 'companies_data.csv')
-    CSV.open(file_path, "wb") do |csv|
-      csv << ["Name", "Location", "Short Description", "YC Batch", "Website", "Founders", "Founders LinkedIn"]
-      @companies.each do |company|
-        csv << [
-          company[:name],
-          company[:location],
-          company[:short_description],
-          company[:yc_batch],
-          company[:website],
-          company[:founders].join(", "),
-          company[:founders_linkedin].join(", ")
-        ]
-      end
-    end
-    puts "CSV saved to #{file_path}" # Debugging statement
-    file_path
+    scrape_first_page(@n)
+    puts "Companies after first page scrape: #{@companies.inspect}"
+    scrape_additional_pages
+    puts "Companies after additional pages scrape: #{@companies.inspect}"
+    save_to_csv(@companies)
+  ensure
+    @driver.quit
   end
 end
